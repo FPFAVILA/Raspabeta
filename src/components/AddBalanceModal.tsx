@@ -19,44 +19,58 @@ export const AddBalanceModal: React.FC<AddBalanceModalProps> = ({
   message
 }) => {
   const [amount, setAmount] = useState('');
-  const { loading, error, pixData, createPix, reset } = useFictionalPix();
+  const { loading, error, pixData, createPix, checkPixStatus, reset } = useFictionalPix();
   const [copied, setCopied] = useState(false);
   const [isCheckingPayment, setIsCheckingPayment] = useState(false);
   const [paymentCheckInterval, setPaymentCheckInterval] = useState<NodeJS.Timeout | null>(null);
 
-  // Definir valor sugerido quando modal abre
   useEffect(() => {
     if (isOpen && suggestedAmount) {
       setAmount(suggestedAmount.toFixed(2).replace('.', ','));
     }
   }, [isOpen, suggestedAmount]);
 
-  // Simulação de pagamento automático após 5 segundos
   useEffect(() => {
     if (!pixData || !isOpen) return;
 
     setIsCheckingPayment(true);
 
-    // Simular pagamento após 5 segundos
-    const paymentTimeout = setTimeout(() => {
-      // Adicionar saldo
-      onAddBalance(pixData.amount);
+    const checkPayment = async () => {
+      try {
+        const status = await checkPixStatus(pixData.transactionId);
 
-      // Fechar modal
-      setTimeout(() => {
-        reset();
-        setAmount('');
-        setIsCheckingPayment(false);
-        onClose();
-      }, 2000);
-    }, 5000);
+        if (status.status === 'paid') {
+          if (paymentCheckInterval) {
+            clearInterval(paymentCheckInterval);
+            setPaymentCheckInterval(null);
+          }
+
+          onAddBalance(status.value);
+
+          setTimeout(() => {
+            reset();
+            setAmount('');
+            setIsCheckingPayment(false);
+            onClose();
+          }, 2000);
+        }
+      } catch (err) {
+        console.error('Erro ao verificar pagamento:', err);
+      }
+    };
+
+    checkPayment();
+
+    const interval = setInterval(checkPayment, 3000);
+    setPaymentCheckInterval(interval);
 
     return () => {
-      clearTimeout(paymentTimeout);
+      if (interval) {
+        clearInterval(interval);
+      }
     };
-  }, [pixData, onAddBalance, reset, onClose, isOpen]);
+  }, [pixData, isOpen]);
 
-  // Cleanup ao fechar modal
   useEffect(() => {
     if (!isOpen) {
       if (paymentCheckInterval) {

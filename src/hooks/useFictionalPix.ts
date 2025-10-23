@@ -4,6 +4,7 @@ interface PixData {
   qrcode: string;
   amount: number;
   transactionId: string;
+  qrCodeBase64?: string;
 }
 
 interface UseFictionalPixReturn {
@@ -11,16 +12,9 @@ interface UseFictionalPixReturn {
   error: string | null;
   pixData: PixData | null;
   createPix: (amount: number) => Promise<PixData>;
+  checkPixStatus: (transactionId: string) => Promise<{ status: string; value: number }>;
   reset: () => void;
 }
-
-const generateFictionalPixCode = (amount: number, transactionId: string): string => {
-  const baseCode = '00020126580014br.gov.bcb.pix';
-  const merchantCode = Math.random().toString(36).substring(2, 15);
-  const formattedAmount = amount.toFixed(2);
-
-  return `${baseCode}0114+5563981480126052040000530398654${formattedAmount.replace('.', '')}5802BR5925RASPADINHA PRO LTDA6009SAO PAULO62${transactionId.length}05${transactionId}6304${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
-};
 
 export const useFictionalPix = (): UseFictionalPixReturn => {
   const [loading, setLoading] = useState(false);
@@ -32,24 +26,55 @@ export const useFictionalPix = (): UseFictionalPixReturn => {
     setError(null);
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      const response = await fetch('/api/create-pix', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ value: amount }),
+      });
 
-      const transactionId = `TXN${Date.now()}${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
-      const qrcode = generateFictionalPixCode(amount, transactionId);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro ao criar PIX');
+      }
+
+      const apiData = await response.json();
 
       const data: PixData = {
-        qrcode,
-        amount,
-        transactionId
+        qrcode: apiData.qr_code,
+        amount: apiData.value / 100,
+        transactionId: apiData.id,
+        qrCodeBase64: apiData.qr_code_base64
       };
 
       setPixData(data);
       setLoading(false);
       return data;
     } catch (err) {
-      const errorMessage = 'Erro ao gerar código PIX';
+      const errorMessage = err instanceof Error ? err.message : 'Erro ao gerar código PIX';
       setError(errorMessage);
       setLoading(false);
+      throw new Error(errorMessage);
+    }
+  };
+
+  const checkPixStatus = async (transactionId: string): Promise<{ status: string; value: number }> => {
+    try {
+      const response = await fetch(`/api/check-pix?id=${transactionId}`);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Erro ao consultar status do PIX');
+      }
+
+      const data = await response.json();
+      return {
+        status: data.status,
+        value: data.value / 100
+      };
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Erro ao consultar PIX';
       throw new Error(errorMessage);
     }
   };
@@ -65,6 +90,7 @@ export const useFictionalPix = (): UseFictionalPixReturn => {
     error,
     pixData,
     createPix,
+    checkPixStatus,
     reset
   };
 };
